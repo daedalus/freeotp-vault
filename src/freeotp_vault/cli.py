@@ -248,6 +248,15 @@ def cmd_gdrive_sync(args: argparse.Namespace) -> None:
         _die("Google Drive sync failed.")
 
 
+def cmd_gdrive_login(_args: argparse.Namespace) -> None:
+    """Authenticate with Google Drive."""
+    from .gdrive import _authenticate as gdrive_auth
+
+    print("Opening browser for Google Drive authentication...")
+    gdrive_auth()
+    print("Successfully authenticated with Google Drive.")
+
+
 def cmd_gdrive_logout(_args: argparse.Namespace) -> None:
     """Remove Google Drive credentials."""
     gdrive_logout()
@@ -311,6 +320,8 @@ def build_parser() -> argparse.ArgumentParser:
         help="Upload vault to Google Drive.",
     )
 
+    sub.add_parser("gdrive-login", help="Authenticate with Google Drive.")
+
     sub.add_parser("gdrive-logout", help="Remove Google Drive credentials.")
 
     return p
@@ -327,6 +338,7 @@ def main() -> None:
         "change-password": cmd_change_password,
         "remove": cmd_remove,
         "gdrive-sync": cmd_gdrive_sync,
+        "gdrive-login": cmd_gdrive_login,
         "gdrive-logout": cmd_gdrive_logout,
     }
     dispatch[args.command](args)
