@@ -39,12 +39,37 @@ def _lazy_import_google_libs() -> tuple[Any, Any, Any, Any]:
         ) from None
 
 
-def _get_client_config() -> dict[str, Any]:
+def _get_client_config(verbose: bool = False) -> dict[str, Any]:
     """Get OAuth client configuration."""
-    if CLIENT_SECRETS.exists():
-        return json.loads(CLIENT_SECRETS.read_text())
     client_id = os.environ.get("GDRIVE_CLIENT_ID", "")
     client_secret = os.environ.get("GDRIVE_CLIENT_SECRET", "")
+
+    if verbose:
+        print(f"[DEBUG] GDRIVE_CLIENT_ID env: '{client_id}'")
+        print(f"[DEBUG] GDRIVE_CLIENT_SECRET env: '{client_secret[:4]}...' " if client_secret else "[DEBUG] GDRIVE_CLIENT_SECRET env: ''")
+
+    if not client_id and CLIENT_SECRETS.exists():
+        data = json.loads(CLIENT_SECRETS.read_text())
+        if verbose:
+            print(f"[DEBUG] Loaded from client_secrets.json")
+        return data
+
+    if not client_id:
+        if verbose:
+            print("[DEBUG] No client_id found")
+        return {
+            "web": {
+                "client_id": "",
+                "client_secret": "",
+                "redirect_uris": [],
+                "auth_uri": "",
+                "token_uri": "",
+            }
+        }
+
+    if verbose:
+        print("[DEBUG] Using env-based config")
+
     return {
         "web": {
             "client_id": client_id,
@@ -60,7 +85,7 @@ def _authenticate(verbose: bool = False, debug: bool = False) -> Any:
     """Authenticate with Google Drive using OAuth."""
     Flow, _, _, _ = _lazy_import_google_libs()
 
-    client_config = _get_client_config()
+    client_config = _get_client_config(verbose=verbose)
 
     if verbose:
         print(f"[DEBUG] Client config: {client_config}")
