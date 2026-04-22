@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import os
+import platform
 import sys
 import webbrowser
 from pathlib import Path
@@ -76,39 +77,51 @@ def _authenticate(verbose: bool = False, debug: bool = False) -> Any:
         redirect_uris=["http://localhost"],
     )
 
+    oauth_url, _ = flow.authorization_url(
+        access_type="offline",
+        prompt="consent",
+    )
+
+    print(f"[VERBOSE] OAuth URL: {oauth_url}")
+
     if verbose:
-        print("[DEBUG] Flow created, starting local server...")
+        print("[DEBUG] Detecting and opening default browser...")
 
-    print("Opening browser for OAuth authorization...")
-    print("If browser doesn't open, manually visit: http://localhost:8080")
+    import platform
+    if verbose:
+        print(f"[DEBUG] Platform: {platform.system()}")
 
-    import threading
-    import socketserver
-    import http.server
+    browser_opened = webbrowser.open(oauth_url)
 
-    handler = http.server.SimpleHTTPRequestHandler
-    with socketserver.TCPServer(("", 8080), handler) as httpd:
-        oauth_url, _ = flow.authorization_url(
-            access_type="offline",
+    if verbose:
+        print(f"[DEBUG] Browser opened via webbrowser: {browser_opened}")
+
+    if not browser_opened:
+        if verbose:
+            print("[DEBUG] Trying alternative browser methods...")
+
+        for browser in ["firefox", "chrome", "chromium", "brave", "edge"]:
+            try:
+                webbrowser.get(browser).open(oauth_url)
+                if verbose:
+                    print(f"[DEBUG] Opened with {browser}")
+                break
+            except webbrowser.Error:
+                continue
+
+    print(f"Opening browser for OAuth authorization...")
+    print(f"If browser doesn't open, visit: {oauth_url}")
+
+    try:
+        flow.run_local_server(
+            port=8080,
+            open_browser=False,
             prompt="consent",
         )
-        print(f"[VERBOSE] OAuth URL: {oauth_url}")
-
-        webbrowser.open(oauth_url)
-
-        if verbose:
-            print("[DEBUG] Waiting for OAuth callback...")
-
-        try:
-            flow.run_local_server(
-                port=8080,
-                open_browser=False,
-                prompt="consent",
-            )
-        except Exception as e:
-            if verbose or debug:
-                print(f"[DEBUG] OAuth error: {e}")
-            raise
+    except Exception as e:
+        if verbose or debug:
+            print(f"[DEBUG] OAuth error: {e}")
+        raise
 
     token = flow.credentials
     TOKEN_FILE.parent.mkdir(parents=True, exist_ok=True)
