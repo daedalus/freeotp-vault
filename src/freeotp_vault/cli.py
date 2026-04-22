@@ -248,12 +248,12 @@ def cmd_gdrive_sync(args: argparse.Namespace) -> None:
         _die("Google Drive sync failed.")
 
 
-def cmd_gdrive_login(_args: argparse.Namespace) -> None:
+def cmd_gdrive_login(args: argparse.Namespace) -> None:
     """Authenticate with Google Drive."""
     from .gdrive import _authenticate as gdrive_auth
 
     print("Opening browser for Google Drive authentication...")
-    gdrive_auth()
+    gdrive_auth(verbose=args.verbose, debug=args.debug)
     print("Successfully authenticated with Google Drive.")
 
 
@@ -272,6 +272,18 @@ def build_parser() -> argparse.ArgumentParser:
         metavar="PATH",
         default=None,
         help=f"Vault file path (default: {DEFAULT_VAULT_PATH})",
+    )
+    p.add_argument(
+        "-v",
+        "--verbose",
+        action="store_true",
+        help="Enable verbose output.",
+    )
+    p.add_argument(
+        "-d",
+        "--debug",
+        action="store_true",
+        help="Enable debug output.",
     )
 
     sub = p.add_subparsers(dest="command", required=True)

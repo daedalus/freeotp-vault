@@ -55,13 +55,14 @@ def _get_client_config() -> dict[str, Any]:
     }
 
 
-def _authenticate() -> Any:
+def _authenticate(verbose: bool = False, debug: bool = False) -> Any:
     """Authenticate with Google Drive using OAuth."""
-    from google.auth.exceptions import RefreshError
-
     Flow, _, _, _ = _lazy_import_google_libs()
 
     client_config = _get_client_config()
+
+    if verbose:
+        print(f"[DEBUG] Client config: {client_config}")
 
     if not client_config.get("web", {}).get("client_id"):
         print("Error: Google Drive OAuth not configured.")
@@ -75,18 +76,47 @@ def _authenticate() -> Any:
         redirect_uris=["http://localhost"],
     )
 
+    if verbose:
+        print("[DEBUG] Flow created, starting local server...")
+
     print("Opening browser for OAuth authorization...")
-    webbrowser.open("http://localhost", new=1, autoraise=True)
-    flow.run_local_server(
-        port=8080,
-        open_browser=True,
-        prompt="consent",
-        authorization_prompt_message="Authorize freeotp-vault to access your Google Drive",
-    )
+    print("If browser doesn't open, manually visit: http://localhost:8080")
+
+    import threading
+    import socketserver
+    import http.server
+
+    handler = http.server.SimpleHTTPRequestHandler
+    with socketserver.TCPServer(("", 8080), handler) as httpd:
+        oauth_url, _ = flow.authorization_url(
+            access_type="offline",
+            prompt="consent",
+        )
+        print(f"[VERBOSE] OAuth URL: {oauth_url}")
+
+        webbrowser.open(oauth_url)
+
+        if verbose:
+            print("[DEBUG] Waiting for OAuth callback...")
+
+        try:
+            flow.run_local_server(
+                port=8080,
+                open_browser=False,
+                prompt="consent",
+            )
+        except Exception as e:
+            if verbose or debug:
+                print(f"[DEBUG] OAuth error: {e}")
+            raise
 
     token = flow.credentials
     TOKEN_FILE.parent.mkdir(parents=True, exist_ok=True)
     TOKEN_FILE.write_text(token.to_json())
+
+    if verbose:
+        print("[DEBUG] Credentials saved")
+
     return token
 
 
