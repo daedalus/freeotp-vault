@@ -47,6 +47,34 @@ freeotp-vault change-password
 freeotp-vault remove --filter "old account"
 ```
 
+### Google Drive Sync
+
+Backup and sync your vault with Google Drive for cross-device access.
+
+**Setup:**
+
+1. Create OAuth credentials:
+   - Go to [Google Cloud Console](https://console.cloud.google.com/apis/credentials)
+   - Create **OAuth client ID** → **Desktop app**
+   - Download as `credentials.json`
+   - Save to `~/.config/freeotp-vault/credentials.json`
+
+2. Authenticate:
+
+```bash
+freeotp-vault gdrive-login
+```
+
+**Sync commands:**
+
+```bash
+# Upload vault to Google Drive
+freeotp-vault gdrive-sync --upload
+
+# Download vault from Google Drive
+freeotp-vault gdrive-sync --download
+```
+
 ## Python API
 
 ```python
@@ -77,17 +105,8 @@ git clone https://github.com/daedalus/freeotp-vault.git
 cd freeotp-vault
 pip install -e ".[test]"
 
-# Run tests
-pytest
-
-# Format
-ruff format src/ tests/
-
-# Lint
-ruff check src/ tests/
-
-# Type check
-mypy src/
+# With Google Drive support
+pip install -e ".[gdrive]"
 ```
 
 ## License
