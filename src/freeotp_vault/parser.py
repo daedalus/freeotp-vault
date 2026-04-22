@@ -116,3 +116,36 @@ def parse_freeotp_json(raw: str) -> list[Token]:
         raise ValueError("No tokens found in the exported file.")
 
     return tokens
+
+
+class GdriveAuthData(TypedDict):
+    client_id: str
+    client_secret: str
+    refresh_token: str
+
+
+def extract_gdrive_auth(raw: str) -> GdriveAuthData | None:
+    """Extract Google Drive OAuth credentials from a FreeOTP JSON export.
+
+    Looks for gdrive/auth fields in the root dict or any token entry.
+    Returns None if no auth data is present.
+    """
+    try:
+        obj = json.loads(raw)
+    except json.JSONDecodeError:
+        return None
+
+    if isinstance(obj, dict):
+        auth = obj.get("gdrive", obj.get("auth", {}))
+        if not isinstance(auth, dict):
+            return None
+        client_id = auth.get("client_id", "")
+        client_secret = auth.get("client_secret", "")
+        refresh_token = auth.get("refresh_token", "")
+        if client_id or client_secret or refresh_token:
+            return GdriveAuthData(
+                client_id=client_id,
+                client_secret=client_secret,
+                refresh_token=refresh_token,
+            )
+    return None

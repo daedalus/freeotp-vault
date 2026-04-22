@@ -5,17 +5,10 @@ Lazy-loaded: only imports google packages when gdrive commands are used.
 
 from __future__ import annotations
 
+import getpass
 import json
 import os
-import json
 import random
-import platform
-import sys
-import webbrowser
-import contextlib
-import logging
-import io
-import urllib.request
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -27,8 +20,9 @@ CREDENTIALS_FILE = CLIENT_SECRETS / "credentials.json"
 VAULT_FILENAME = "freeotp-vault.enc"
 
 if TYPE_CHECKING:
-    from google.oauth2.credentials import Credentials
     from googleapiclient.discovery import Resource
+
+    from .parser import GdriveAuthData
 
 
 def _lazy_import_google_libs() -> tuple[Any, Any, Any, Any]:
@@ -47,26 +41,87 @@ def _lazy_import_google_libs() -> tuple[Any, Any, Any, Any]:
         ) from None
 
 
-def _get_client_config(verbose: bool = False) -> dict[str, Any]:
-    """Get OAuth client configuration."""
+def get_vault_gdrive_auth(
+    password: str | None = None,
+    vault_path: Path | None = None,
+) -> GdriveAuthData | None:
+    """Load gdrive_auth from the encrypted vault.
+
+    Args:
+        password: Optional vault password. If None, prompts securely.
+        vault_path: Optional vault path.
+
+    Returns:
+        GdriveAuthData dict or None.
+    """
+    from .vault import DEFAULT_VAULT_PATH, VaultData, load_vault
+
+    vp = vault_path or DEFAULT_VAULT_PATH
+    pw = password
+
+    if pw is None:
+        try:
+            from .keyring_store import get_password_from_keyring
+
+            pw = get_password_from_keyring(str(vp.resolve()))
+        except Exception:
+            pw = None
+
+    if pw is None:
+        try:
+            pw = getpass.getpass("Vault password: ")
+        except EOFError:
+            return None
+
+    try:
+        vault: VaultData = load_vault(pw, vp)
+        return vault.get("gdrive_auth")
+    except Exception:
+        return None
+
+
+def _get_client_config(
+    verbose: bool = False,
+    vault_password: str | None = None,
+    vault_path: Path | None = None,
+) -> dict[str, Any]:
+    """Get OAuth client configuration.
+
+    Priority:
+    1. Vault gdrive_auth (if present)
+    2. GDRIVE_CLIENT_ID / GDRIVE_CLIENT_SECRET env vars
+    3. ~/.config/freeotp-vault/client_secrets.json
+    4. ~/.config/freeotp-vault/credentials.json
+    """
     client_id = os.environ.get("GDRIVE_CLIENT_ID", "")
     client_secret = os.environ.get("GDRIVE_CLIENT_SECRET", "")
 
+    vault_auth = get_vault_gdrive_auth(password=vault_password, vault_path=vault_path)
+    if vault_auth:
+        client_id = vault_auth.get("client_id") or client_id
+        client_secret = vault_auth.get("client_secret") or client_secret
+        if verbose:
+            print("[DEBUG] Loaded client config from vault gdrive_auth")
+
     if verbose:
         print(f"[DEBUG] GDRIVE_CLIENT_ID env: '{client_id}'")
-        print(f"[DEBUG] GDRIVE_CLIENT_SECRET env: '{client_secret[:4]}...' " if client_secret else "[DEBUG] GDRIVE_CLIENT_SECRET env: ''")
+        print(
+            f"[DEBUG] GDRIVE_CLIENT_SECRET env: '{client_secret[:4]}...' "
+            if client_secret
+            else "[DEBUG] GDRIVE_CLIENT_SECRET env: ''"
+        )
 
     if not client_id and CLIENT_SECRETS_FILE.exists():
         data = json.loads(CLIENT_SECRETS_FILE.read_text())
         if verbose:
-            print(f"[DEBUG] Loaded from client_secrets.json")
+            print("[DEBUG] Loaded from client_secrets.json")
         web_config = data.get("web", data.get("installed", {}))
         client_id = web_config.get("client_id", "")
         client_secret = web_config.get("client_secret", "")
     elif not client_id and CREDENTIALS_FILE.exists():
         data = json.loads(CREDENTIALS_FILE.read_text())
         if verbose:
-            print(f"[DEBUG] Loaded from credentials.json")
+            print("[DEBUG] Loaded from credentials.json")
         web_config = data.get("web", data.get("installed", {}))
         client_id = web_config.get("client_id", "")
         client_secret = web_config.get("client_secret", "")
@@ -98,38 +153,71 @@ def _get_client_config(verbose: bool = False) -> dict[str, Any]:
     }
 
 
-def _authenticate(verbose: bool = False, debug: bool = False) -> Any:
+def _authenticate(
+    verbose: bool = False,
+    vault_password: str | None = None,
+    vault_path: Path | None = None,
+) -> Any:
     """Authenticate with Google Drive using OAuth."""
     print("Starting Google Drive authentication...", flush=True)
-    Flow, _, _, _ = _lazy_import_google_libs()
-
-    client_config = _get_client_config(verbose=verbose)
+    client_config = _get_client_config(
+        verbose=verbose,
+        vault_password=vault_password,
+        vault_path=vault_path,
+    )
 
     if not client_config.get("web", {}).get("client_id"):
         print("Error: Google Drive OAuth not configured.")
         print("Set GDRIVE_CLIENT_ID and GDRIVE_CLIENT_SECRET environment variables")
         print("or create ~/.config/freeotp-vault/credentials.json")
-        sys.exit(1)
+        raise SystemExit(1)
 
-    flow = Flow.from_client_config(
-        client_config,
-        SCOPES,
-    )
+    flow_cls, _, _, _ = _lazy_import_google_libs()
+    flow = flow_cls.from_client_config(client_config, SCOPES)
     port = random.randint(10000, 60000)
     flow.redirect_uri = f"http://localhost:{port}"
 
-    print(f"Opening browser for OAuth authorization...")
+    vault_auth = get_vault_gdrive_auth(password=vault_password, vault_path=vault_path)
+    refresh_token = vault_auth.get("refresh_token") if vault_auth else None
+
+    if refresh_token:
+        if verbose:
+            print("[DEBUG] Using refresh_token from vault gdrive_auth")
+        from google.oauth2.credentials import Credentials
+
+        creds = Credentials(
+            token=None,
+            refresh_token=refresh_token,
+            client_id=client_config["web"]["client_id"],
+            client_secret=client_config["web"]["client_secret"],
+            scopes=SCOPES,
+        )
+        import google.auth.transport.requests
+
+        try:
+            creds.refresh(google.auth.transport.requests.Request())
+            TOKEN_FILE.parent.mkdir(parents=True, exist_ok=True)
+            TOKEN_FILE.write_text(creds.to_json())
+            print("Successfully authenticated with Google Drive (refresh token)!")
+            if verbose:
+                print("[DEBUG] Credentials saved")
+            return creds
+        except Exception as e:
+            if verbose:
+                print(f"[DEBUG] Refresh failed: {e}, falling back to browser auth")
+            print("Opening browser for OAuth authorization...")
+
+    print("Opening browser for OAuth authorization...")
 
     try:
-        import warnings
-        import logging
         import io
+        import logging
         import sys
-        import contextlib
+        import warnings
 
         logging.getLogger("google_auth_oauthlib").setLevel(logging.ERROR)
         logging.getLogger("google_auth_oauthlib.flow").setLevel(logging.ERROR)
-        
+
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             old_stdout = sys.stdout
@@ -166,53 +254,84 @@ class _GoogleAuth:
     """Lazy google auth handler."""
 
     @staticmethod
-    def get_credentials() -> Any:
+    def get_credentials(
+        vault_password: str | None = None,
+        vault_path: Path | None = None,
+    ) -> Any:
         """Load stored credentials or re-authenticate."""
         if not TOKEN_FILE.exists():
-            return _authenticate()
+            return _authenticate(
+                vault_password=vault_password,
+                vault_path=vault_path,
+            )
 
-        from google.auth.exceptions import RefreshError
         import google.auth.transport.requests
+        from google.auth.exceptions import RefreshError
         from google.oauth2.credentials import Credentials
 
         try:
             creds = Credentials.from_authorized_user_file(str(TOKEN_FILE), SCOPES)
             if creds.expired or creds.refresh_token is None:
-                return _authenticate()
+                return _authenticate(
+                    vault_password=vault_password,
+                    vault_path=vault_path,
+                )
 
             try:
                 creds.refresh(google.auth.transport.requests.Request())
                 TOKEN_FILE.write_text(creds.to_json())
             except RefreshError:
-                return _authenticate()
+                return _authenticate(
+                    vault_password=vault_password,
+                    vault_path=vault_path,
+                )
 
             return creds
         except Exception:
-            return _authenticate()
+            return _authenticate(
+                vault_password=vault_password,
+                vault_path=vault_path,
+            )
 
     @staticmethod
-    def _get_http_session() -> Any:
+    def _get_http_session(
+        vault_password: str | None = None,
+        vault_path: Path | None = None,
+    ) -> Any:
         """Get authenticated requests session with proxy support."""
         import requests
-        
-        creds = _GoogleAuth.get_credentials()
+
+        creds = _GoogleAuth.get_credentials(
+            vault_password=vault_password,
+            vault_path=vault_path,
+        )
         access_token = creds.token
-        
+
         session = requests.Session()
         session.headers.update({"Authorization": f"Bearer {access_token}"})
-        
-        http_proxy = os.environ.get("HTTP_PROXY") or os.environ.get("http_proxy") or os.environ.get("HTTPS_PROXY") or os.environ.get("https_proxy")
-        https_proxy = os.environ.get("HTTPS_PROXY") or os.environ.get("https_proxy") or os.environ.get("HTTP_PROXY") or os.environ.get("http_proxy")
-        
+
+        http_proxy = (
+            os.environ.get("HTTP_PROXY")
+            or os.environ.get("http_proxy")
+            or os.environ.get("HTTPS_PROXY")
+            or os.environ.get("https_proxy")
+        )
+        https_proxy = (
+            os.environ.get("HTTPS_PROXY")
+            or os.environ.get("https_proxy")
+            or os.environ.get("HTTP_PROXY")
+            or os.environ.get("http_proxy")
+        )
+
         if http_proxy:
             session.proxies = {"http": http_proxy, "https": https_proxy or http_proxy}
-        
+
         return session
 
 
-def _find_vault_file(service: "Resource") -> dict[str, str] | None:
+def _find_vault_file(service: Resource) -> dict[str, str] | None:
     """Find existing vault file in Google Drive."""
-    _, _, HttpError, _ = _lazy_import_google_libs()
+    _, _, http_error, _ = _lazy_import_google_libs()
 
     try:
         results = (
@@ -226,11 +345,16 @@ def _find_vault_file(service: "Resource") -> dict[str, str] | None:
         )
         files = results.get("files", [])
         return files[0] if files else None
-    except HttpError:
+    except http_error:
         return None
 
 
-def gdrive_sync(download: bool = False, upload: bool = False, vault_path: Path | None = None) -> bool:
+def gdrive_sync(
+    download: bool = False,
+    upload: bool = False,
+    vault_path: Path | None = None,
+    vault_password: str | None = None,
+) -> bool:
     """Sync vault with Google Drive.
 
     Args:
@@ -241,7 +365,6 @@ def gdrive_sync(download: bool = False, upload: bool = False, vault_path: Path |
     Returns:
         True on success.
     """
-    import requests
     from .vault import DEFAULT_VAULT_PATH, vault_exists
 
     vault = vault_path or DEFAULT_VAULT_PATH
@@ -250,38 +373,52 @@ def gdrive_sync(download: bool = False, upload: bool = False, vault_path: Path |
         return False
 
     try:
-        session = _GoogleAuth._get_http_session()
+        session = _GoogleAuth._get_http_session(
+            vault_password=vault_password,
+            vault_path=vault_path,
+        )
     except SystemExit:
         return False
 
     try:
-        upload_url = "https://www.googleapis.com/upload/drive/v3/files"
         query_url = "https://www.googleapis.com/drive/v3/files"
-        
-        headers = {"Authorization": f"Bearer {session.headers.get('Authorization', '').replace('Bearer ', '')}"}
-        
+
+        headers = {
+            "Authorization": f"Bearer {session.headers.get('Authorization', '').replace('Bearer ', '')}"
+        }
+
         proxy = os.environ.get("HTTP_PROXY") or os.environ.get("https_proxy") or ""
         proxies = {"http": proxy, "https": proxy} if proxy else None
-        
+
         if upload:
-            files_in_drive = session.get(query_url, params={"q": f"name='{VAULT_FILENAME}' and trashed=false"}, proxies=proxies).json()
+            files_in_drive = session.get(
+                query_url,
+                params={"q": f"name='{VAULT_FILENAME}' and trashed=false"},
+                proxies=proxies,
+            ).json()
             existing = files_in_drive.get("files", [])
-            
+
             with open(vault, "rb") as f:
                 vault_data = f.read()
-            
+
             if existing:
                 file_id = existing[0]["id"]
-                print(f"Updating existing vault in Google Drive...")
+                print("Updating existing vault in Google Drive...")
                 session.patch(
                     f"https://www.googleapis.com/drive/v3/files/{file_id}",
                     headers=headers,
-                    files={"data": ("metadata", '{"mimeType": "application/octet-stream"}', "application/json")},
+                    files={
+                        "data": (
+                            "metadata",
+                            '{"mimeType": "application/octet-stream"}',
+                            "application/json",
+                        )
+                    },
                     data=vault_data,
                     proxies=proxies,
                 )
             else:
-                print(f"Uploading vault to Google Drive...")
+                print("Uploading vault to Google Drive...")
                 metadata = {"name": VAULT_FILENAME}
                 multipart = [
                     ("metadata", (None, json.dumps(metadata), "application/json")),
@@ -292,30 +429,34 @@ def gdrive_sync(download: bool = False, upload: bool = False, vault_path: Path |
                     files=multipart,
                     proxies=proxies,
                 )
-            
+
             print("Vault uploaded to Google Drive")
             return True
 
         if download:
-            files_in_drive = session.get(query_url, params={"q": f"name='{VAULT_FILENAME}' and trashed=false"}, proxies=proxies).json()
+            files_in_drive = session.get(
+                query_url,
+                params={"q": f"name='{VAULT_FILENAME}' and trashed=false"},
+                proxies=proxies,
+            ).json()
             existing = files_in_drive.get("files", [])
-            
+
             if not existing:
                 print("No vault found in Google Drive. Use --upload to create one.")
                 return False
-            
+
             file_id = existing[0]["id"]
             print("Downloading vault from Google Drive...")
-            
+
             content = session.get(
                 f"https://www.googleapis.com/drive/v3/files/{file_id}?alt=media",
                 proxies=proxies,
             ).content
-            
+
             vault_tmp = vault.with_suffix(".tmp")
             vault_tmp.write_bytes(content)
             vault_tmp.replace(vault)
-            
+
             print(f"Vault downloaded to {vault}")
             return True
 

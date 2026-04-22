@@ -31,6 +31,7 @@ from .vault import (
     filter_tokens,
     load_tokens,
     save_tokens,
+    save_vault,
     vault_exists,
 )
 
@@ -88,6 +89,8 @@ def _unlock(vault_path: Path) -> tuple[str, list[Token]]:
 
 
 def cmd_init(args: argparse.Namespace) -> None:
+    from .parser import extract_gdrive_auth
+
     json_path = Path(args.json_file)
     if not json_path.exists():
         _die(f"File not found: {json_path}")
@@ -113,10 +116,15 @@ def cmd_init(args: argparse.Namespace) -> None:
     except ValueError as exc:
         _die(f"Could not parse FreeOTP export: {exc}")
 
+    gdrive_auth = extract_gdrive_auth(raw)
+
     print(f"Found {len(tokens)} token(s). Creating encrypted vault...")
     password = _ask_new_password()
-    save_tokens(tokens, password, vault_path)
+    save_vault(tokens, password, vault_path, gdrive_auth)
     print(f"Vault created: {vault_path}")
+
+    if gdrive_auth:
+        print("  Google Drive auth data saved to vault.")
 
     abs_path = str(vault_path.resolve())
     try:
@@ -238,12 +246,23 @@ def cmd_remove(args: argparse.Namespace) -> None:
 
 def cmd_gdrive_sync(args: argparse.Namespace) -> None:
     """Sync vault with Google Drive."""
-    vault_path = Path(args.vault) if args.vault else None
+    from .keyring_store import get_password_from_keyring
+
+    vault_path = Path(args.vault) if args.vault else DEFAULT_VAULT_PATH
+    vp = vault_path.resolve()
+
+    vault_password: str | None = None
+    if vault_exists(vault_path):
+        try:
+            vault_password = get_password_from_keyring(str(vp))
+        except Exception:
+            vault_password = None
 
     if not gdrive_sync(
         download=args.download,
         upload=args.upload,
         vault_path=vault_path,
+        vault_password=vault_password,
     ):
         _die("Google Drive sync failed.")
 
@@ -251,9 +270,32 @@ def cmd_gdrive_sync(args: argparse.Namespace) -> None:
 def cmd_gdrive_login(args: argparse.Namespace) -> None:
     """Authenticate with Google Drive."""
     from .gdrive import _authenticate as gdrive_auth
+    from .vault import DEFAULT_VAULT_PATH
+
+    vault_path = Path(args.vault) if args.vault else None
+    vp = vault_path or DEFAULT_VAULT_PATH
+
+    vault_password: str | None = None
+    if vault_exists(vp):
+        try:
+            from .keyring_store import get_password_from_keyring
+
+            vault_password = get_password_from_keyring(str(vp.resolve()))
+        except Exception:
+            vault_password = None
+
+        if vault_password is None:
+            try:
+                vault_password = getpass.getpass("Vault password (for gdrive auth): ")
+            except EOFError:
+                vault_password = None
 
     print("Opening browser for Google Drive authentication...")
-    gdrive_auth(verbose=args.verbose, debug=args.debug)
+    gdrive_auth(
+        verbose=args.verbose,
+        vault_password=vault_password,
+        vault_path=vault_path,
+    )
     print("Successfully authenticated with Google Drive.")
 
 
