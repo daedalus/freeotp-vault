@@ -109,30 +109,41 @@ def _authenticate(verbose: bool = False, debug: bool = False) -> Any:
 
     print(f"[VERBOSE] OAuth URL: {oauth_url}")
 
-    if verbose:
-        print("[DEBUG] Detecting and opening default browser...")
-
+    print("Detecting default browser...")
+    
     import platform
-    if verbose:
-        print(f"[DEBUG] Platform: {platform.system()}")
-
+    print(f"Platform: {platform.system()}")
+    
+    # Get all available browsers
+    browsers = webbrowser._browsers
+    print(f"Available browsers: {list(browsers.keys())}")
+    
+    # Get the default browser
+    default_browser = webbrowser.get()
+    print(f"Default browser: {default_browser.name if hasattr(default_browser, 'name') else default_browser}")
+    
+    print(f"Opening {default_browser.name if hasattr(default_browser, 'name') else 'default browser'}...")
+    
     browser_opened = webbrowser.open(oauth_url)
 
-    if verbose:
-        print(f"[DEBUG] Browser opened via webbrowser: {browser_opened}")
+    print(f"Browser open result: {browser_opened}")
 
     if not browser_opened:
-        if verbose:
-            print("[DEBUG] Trying alternative browser methods...")
-
-        for browser in ["firefox", "chrome", "chromium", "brave", "edge"]:
+        print("Trying alternative browsers...")
+        tried = []
+        for browser in webbrowser._browsers.keys():
             try:
+                print(f"Trying {browser}...")
                 webbrowser.get(browser).open(oauth_url)
-                if verbose:
-                    print(f"[DEBUG] Opened with {browser}")
+                print(f"Opened with {browser}")
+                tried.append(browser)
                 break
-            except webbrowser.Error:
+            except Exception as e:
+                print(f"Failed {browser}: {e}")
                 continue
+        
+        if not tried:
+            print("No browser could be opened")
 
     print(f"Opening browser for OAuth authorization...")
     print(f"If browser doesn't open, visit: {oauth_url}")
