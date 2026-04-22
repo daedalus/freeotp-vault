@@ -7,18 +7,20 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 from .crypto import decrypt_vault, encrypt_vault
 
 if TYPE_CHECKING:
     from .parser import GdriveAuthData, Token
 
+from .parser import Token  # noqa: TC001  # type: ignore[attr-defined]
+
 DEFAULT_VAULT_DIR = Path.home() / ".config" / "freeotp-vault"
 DEFAULT_VAULT_PATH = DEFAULT_VAULT_DIR / "vault.enc"
 
 
-class VaultData(dict):
+class VaultData(dict):  # type: ignore[type-arg]
     """Vault dict containing tokens and optional gdrive_auth."""
 
     tokens: list[Token]
@@ -111,7 +113,7 @@ def load_tokens(password: str, path: str | Path | None = None) -> list[Token]:
         ValueError: On wrong password or corruption.
     """
     vault = load_vault(password, path)
-    return vault["tokens"]
+    return cast("list[Token]", vault["tokens"])
 
 
 def save_tokens(

@@ -63,7 +63,7 @@ ignore = ["E501"]
 [tool.ruff.lint.per-file-ignores]
 "__init__.py" = ["F401"]
 "tests/*" = ["ANN", "ARG"]
-"src/freeotp_vault/gdrive.py" = ["ANN", "ARG"]
+"src/freeotp_vault/gdrive.py" = ["ANN", "ARG", "TC001", "TC006"]
 "src/freeotp_vault/vault.py" = ["ANN"]
 
 [tool.ruff.lint.pydocstyle]

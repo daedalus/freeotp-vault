@@ -185,7 +185,7 @@ def _authenticate(
             print("[DEBUG] Using refresh_token from vault gdrive_auth")
         from google.oauth2.credentials import Credentials
 
-        creds = Credentials(
+        creds = Credentials(  # type: ignore[no-untyped-call]
             token=None,
             refresh_token=refresh_token,
             client_id=client_config["web"]["client_id"],
@@ -270,7 +270,7 @@ class _GoogleAuth:
         from google.oauth2.credentials import Credentials
 
         try:
-            creds = Credentials.from_authorized_user_file(str(TOKEN_FILE), SCOPES)
+            creds = Credentials.from_authorized_user_file(str(TOKEN_FILE), SCOPES)  # type: ignore[no-untyped-call]
             if creds.expired or creds.refresh_token is None:
                 return _authenticate(
                     vault_password=vault_password,
@@ -279,7 +279,7 @@ class _GoogleAuth:
 
             try:
                 creds.refresh(google.auth.transport.requests.Request())
-                TOKEN_FILE.write_text(creds.to_json())
+                TOKEN_FILE.write_text(creds.to_json())  # type: ignore[no-untyped-call]
             except RefreshError:
                 return _authenticate(
                     vault_password=vault_password,
