@@ -1,5 +1,7 @@
 """Tests for freeotp_vault.vault."""
 
+import json
+from pathlib import Path
 
 import pytest
 
@@ -16,7 +18,7 @@ class TestVaultRoundtrip:
     def test_vault_permissions(self, tmp_path, token_list):
         vp = tmp_path / "vault.enc"
         save_tokens(token_list, "pw", vp)
-
+        import stat
         mode = vp.stat().st_mode & 0o777
         assert mode == 0o600
 
@@ -75,14 +77,92 @@ class TestFilterTokens:
         assert result[0]["label"] == "bob@acme.com"
 
     def test_filter_case_insensitive(self, token_list):
-        assert filter_tokens(token_list, "GITHUB") == filter_tokens(
-            token_list, "github"
-        )
+        assert filter_tokens(token_list, "GITHUB") == filter_tokens(token_list, "github")
 
     def test_filter_no_match_returns_empty(self, token_list):
         assert filter_tokens(token_list, "zzznomatch") == []
 
     def test_filter_partial_match(self, token_list):
         result = filter_tokens(token_list, "example")
-        # alice@example.com matches
         assert any(t["label"] == "alice@example.com" for t in result)
+
+
+class TestVaultEdgeCases:
+    def test_unicode_token(self, tmp_path):
+        vp = tmp_path / "vault.enc"
+        tokens = [{"issuer": "Test", "label": "üser", "secret": "JBSWY3DPEHPK3PXP"}]
+        save_tokens(tokens, "pw", vp)
+        loaded = load_tokens("pw", vp)
+        assert loaded[0]["label"] == "üser"
+
+    def test_special_chars_label(self, tmp_path):
+        vp = tmp_path / "vault.enc"
+        tokens = [{"issuer": "Test", "label": "user@example.com", "secret": "JBSWY3DPEHPK3PXP"}]
+        save_tokens(tokens, "pw", vp)
+        loaded = load_tokens("pw", vp)
+        assert loaded[0]["label"] == "user@example.com"
+
+    def test_path_object(self, tmp_path, token_list):
+        vp = tmp_path / "vault.enc"
+        save_tokens(token_list, "pw", vp)
+        loaded = load_tokens("pw", vp)
+        assert loaded == token_list
+
+    def test_path_string(self, tmp_path, token_list):
+        vp = str(tmp_path / "vault.enc")
+        save_tokens(token_list, "pw", vp)
+        loaded = load_tokens("pw", vp)
+        assert loaded == token_list
+
+
+class TestVaultAdversarial:
+    def test_corrupted_vault_file(self, tmp_path):
+        vp = tmp_path / "vault.enc"
+        vp.write_bytes(b"NOT A VALID VAULT")
+        with pytest.raises(ValueError):
+            load_tokens("any", vp)
+
+    def test_truncated_vault_file(self, tmp_path):
+        vp = tmp_path / "vault.enc"
+        vp.write_bytes(b"FOTV\x01" + b"\x00" * 20)
+        with pytest.raises(ValueError):
+            load_tokens("pw", vp)
+
+    def test_json_corruption_in_plaintext(self, tmp_path):
+        import os
+        from freeotp_vault.crypto import encrypt_vault
+        vp = tmp_path / "vault.enc"
+        corrupted_json = b'{"invalid": json}'
+        blob = encrypt_vault(corrupted_json, "pw")
+        vp.write_bytes(blob)
+        with pytest.raises(json.JSONDecodeError):
+            load_tokens("pw", vp)
+
+    def test_duplicate_issuer_label(self, tmp_path):
+        vp = tmp_path / "vault.enc"
+        tokens = [
+            {"issuer": "GitHub", "label": "user1", "secret": "JBSWY3DPEHPK3PXP"},
+            {"issuer": "GitHub", "label": "user2", "secret": "JBSWY3DPEHPK3PXP"},
+        ]
+        save_tokens(tokens, "pw", vp)
+        loaded = load_tokens("pw", vp)
+        assert len(loaded) == 2
+
+    def test_symlink_vault(self, tmp_path, token_list):
+        vp = tmp_path / "vault.enc"
+        link = tmp_path / "link.enc"
+        save_tokens(token_list, "pw", vp)
+        link.symlink_to(vp)
+        loaded = load_tokens("pw", link)
+        assert loaded == token_list
+
+    def test_read_only_parent(self, tmp_path, token_list):
+        import stat
+        vp = tmp_path / "sub" / "vault.enc"
+        vp.parent.mkdir()
+        vp.parent.chmod(0o500)
+        try:
+            with pytest.raises(PermissionError):
+                save_tokens(token_list, "pw", vp)
+        finally:
+            vp.parent.chmod(0o755)
