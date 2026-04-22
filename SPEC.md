@@ -3,7 +3,8 @@
 ## Purpose
 CLI tool that imports a FreeOTP/FreeOTP+ JSON export, encrypts the vault with
 AES-256-GCM (password-derived key via scrypt), stores the unlock password in the
-OS keyring, and generates TOTP/HOTP tokens on demand.
+OS keyring, and generates TOTP/HOTP tokens on demand. Supports optional
+Google Drive sync for backup and cross-device access.
 
 ## Scope
 
@@ -13,13 +14,14 @@ OS keyring, and generates TOTP/HOTP tokens on demand.
 - `list`               — list stored accounts (no secrets shown)
 - `change-password`    — re-encrypt vault with a new password
 - `remove <filter>`    — delete matching accounts from the vault
+- `gdrive-sync`        — sync vault to/from Google Drive
 
 **Not in scope:**
 - GUI / TUI
-- Cloud sync or remote storage
 - QR-code scanning
 - Writing back to FreeOTP format
 - Windows DPAPI or macOS Keychain workarounds beyond `keyring` stdlib
+- Other cloud providers (only Google Drive supported)
 
 ## Public API / Interface
 
@@ -31,6 +33,7 @@ freeotp-vault list [--filter TEXT]
 freeotp-vault token [--filter TEXT] [--once]
 freeotp-vault change-password
 freeotp-vault remove --filter TEXT
+freeotp-vault gdrive-sync [--download | --upload]
 ```
 
 ### Python API (importable)
@@ -53,6 +56,9 @@ def get_password_from_keyring(vault_path: str) -> str | None:
 
 def store_password_in_keyring(vault_path: str, password: str) -> None:
     """Store password in OS keyring under service=freeotp-vault, username=vault_path."""
+
+def gdrive_sync(download: bool = False, upload: bool = False) -> bool:
+    """Sync vault with Google Drive. Returns True on success."""
 ```
 
 ## Data Formats

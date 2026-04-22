@@ -1,7 +1,6 @@
 """Tests for freeotp_vault.vault."""
 
 import json
-from pathlib import Path
 
 import pytest
 
@@ -18,7 +17,7 @@ class TestVaultRoundtrip:
     def test_vault_permissions(self, tmp_path, token_list):
         vp = tmp_path / "vault.enc"
         save_tokens(token_list, "pw", vp)
-        import stat
+
         mode = vp.stat().st_mode & 0o777
         assert mode == 0o600
 
@@ -77,7 +76,9 @@ class TestFilterTokens:
         assert result[0]["label"] == "bob@acme.com"
 
     def test_filter_case_insensitive(self, token_list):
-        assert filter_tokens(token_list, "GITHUB") == filter_tokens(token_list, "github")
+        assert filter_tokens(token_list, "GITHUB") == filter_tokens(
+            token_list, "github"
+        )
 
     def test_filter_no_match_returns_empty(self, token_list):
         assert filter_tokens(token_list, "zzznomatch") == []
@@ -97,7 +98,13 @@ class TestVaultEdgeCases:
 
     def test_special_chars_label(self, tmp_path):
         vp = tmp_path / "vault.enc"
-        tokens = [{"issuer": "Test", "label": "user@example.com", "secret": "JBSWY3DPEHPK3PXP"}]
+        tokens = [
+            {
+                "issuer": "Test",
+                "label": "user@example.com",
+                "secret": "JBSWY3DPEHPK3PXP",
+            }
+        ]
         save_tokens(tokens, "pw", vp)
         loaded = load_tokens("pw", vp)
         assert loaded[0]["label"] == "user@example.com"
@@ -129,8 +136,8 @@ class TestVaultAdversarial:
             load_tokens("pw", vp)
 
     def test_json_corruption_in_plaintext(self, tmp_path):
-        import os
         from freeotp_vault.crypto import encrypt_vault
+
         vp = tmp_path / "vault.enc"
         corrupted_json = b'{"invalid": json}'
         blob = encrypt_vault(corrupted_json, "pw")
@@ -157,7 +164,7 @@ class TestVaultAdversarial:
         assert loaded == token_list
 
     def test_read_only_parent(self, tmp_path, token_list):
-        import stat
+
         vp = tmp_path / "sub" / "vault.enc"
         vp.parent.mkdir()
         vp.parent.chmod(0o500)

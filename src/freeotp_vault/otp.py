@@ -5,10 +5,12 @@ OTP token generation (TOTP and HOTP) backed by pyotp.
 from __future__ import annotations
 
 import time
+from typing import TYPE_CHECKING
 
 import pyotp
 
-from .parser import Token
+if TYPE_CHECKING:
+    from .parser import Token
 
 
 def generate_token(token: Token) -> str:

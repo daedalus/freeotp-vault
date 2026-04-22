@@ -3,6 +3,7 @@
 from typing import TYPE_CHECKING
 
 from .crypto import decrypt_vault, encrypt_vault
+from .gdrive import gdrive_logout, gdrive_sync
 from .keyring_store import (
     delete_password_from_keyring,
     get_password_from_keyring,
@@ -27,6 +28,8 @@ __all__ = [
     "save_tokens",
     "filter_tokens",
     "Token",
+    "gdrive_sync",
+    "gdrive_logout",
 ]
 
 if TYPE_CHECKING:

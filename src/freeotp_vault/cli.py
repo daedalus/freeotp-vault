@@ -7,6 +7,8 @@ Usage:
   freeotp-vault token [--filter TEXT]     Generate OTP codes
   freeotp-vault change-password           Re-encrypt with a new password
   freeotp-vault remove --filter TEXT      Remove matching accounts
+  freeotp-vault gdrive-sync [--download | --upload]  Sync with Google Drive
+  freeotp-vault gdrive-logout              Remove Google Drive credentials
 """
 
 from __future__ import annotations
@@ -16,6 +18,7 @@ import getpass
 import sys
 from pathlib import Path
 
+from .gdrive import gdrive_logout, gdrive_sync
 from .keyring_store import (
     delete_password_from_keyring,
     get_password_from_keyring,
@@ -233,6 +236,23 @@ def cmd_remove(args: argparse.Namespace) -> None:
     print(f"Removed {len(matches)} account(s). {len(remaining)} remain.")
 
 
+def cmd_gdrive_sync(args: argparse.Namespace) -> None:
+    """Sync vault with Google Drive."""
+    vault_path = Path(args.vault) if args.vault else None
+
+    if not gdrive_sync(
+        download=args.download,
+        upload=args.upload,
+        vault_path=vault_path,
+    ):
+        _die("Google Drive sync failed.")
+
+
+def cmd_gdrive_logout(_args: argparse.Namespace) -> None:
+    """Remove Google Drive credentials."""
+    gdrive_logout()
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="freeotp-vault",
@@ -279,6 +299,20 @@ def build_parser() -> argparse.ArgumentParser:
         help="Filter accounts to remove.",
     )
 
+    gdrive_p = sub.add_parser("gdrive-sync", help="Sync vault with Google Drive.")
+    gdrive_p.add_argument(
+        "--download",
+        action="store_true",
+        help="Download vault from Google Drive.",
+    )
+    gdrive_p.add_argument(
+        "--upload",
+        action="store_true",
+        help="Upload vault to Google Drive.",
+    )
+
+    sub.add_parser("gdrive-logout", help="Remove Google Drive credentials.")
+
     return p
 
 
@@ -292,6 +326,8 @@ def main() -> None:
         "token": cmd_token,
         "change-password": cmd_change_password,
         "remove": cmd_remove,
+        "gdrive-sync": cmd_gdrive_sync,
+        "gdrive-logout": cmd_gdrive_logout,
     }
     dispatch[args.command](args)
 

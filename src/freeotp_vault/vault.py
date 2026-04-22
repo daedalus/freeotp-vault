@@ -7,9 +7,12 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from .crypto import decrypt_vault, encrypt_vault
-from .parser import Token
+
+if TYPE_CHECKING:
+    from .parser import Token
 
 DEFAULT_VAULT_DIR = Path.home() / ".config" / "freeotp-vault"
 DEFAULT_VAULT_PATH = DEFAULT_VAULT_DIR / "vault.enc"

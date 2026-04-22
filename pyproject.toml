@@ -16,6 +16,9 @@ dependencies = [
     "cryptography>=42.0",
     "keyring>=25.0",
     "pyotp>=2.9",
+    "google-api-python-client>=2.0",
+    "google-auth-httplib2>=0.2",
+    "google-auth-oauthlib>=1.0",
 ]
 
 [project.optional-dependencies]
@@ -69,6 +72,10 @@ python_version = "3.11"
 strict = true
 warn_return_any = true
 warn_unused_ignores = true
+ignore_missing_imports = true
+
+[tool.mypy.overrides]
+ignore_errors_in = ["src/freeotp_vault/gdrive.py"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

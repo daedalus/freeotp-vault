@@ -93,6 +93,7 @@ class TestCryptoEdgeCases:
 class TestCryptoAdversarial:
     def test_random_bytes_not_decryptable(self):
         import os
+
         random_data = os.urandom(100)
         with pytest.raises(ValueError):
             decrypt_vault(random_data, "anypassword")
