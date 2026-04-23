@@ -90,6 +90,8 @@ def _unlock(vault_path: Path) -> tuple[str, list[Token]]:
 
 
 def cmd_import_vault(args: argparse.Namespace) -> None:
+    from .vault import load_vault, save_vault, vault_exists
+
     source_path = Path(args.vault_file)
     if not source_path.exists():
         _die(f"File not found: {source_path}")
@@ -98,7 +100,7 @@ def cmd_import_vault(args: argparse.Namespace) -> None:
     if vault_exists(dest_path) and not args.force:
         try:
             confirm = (
-                input(f"Vault already exists at {dest_path}. Overwrite? [y/N] ")
+                input(f"Vault already exists at {dest_path}. Merge? [y/N] ")
                 .strip()
                 .lower()
             )
@@ -108,16 +110,40 @@ def cmd_import_vault(args: argparse.Namespace) -> None:
             print("Aborted.")
             return
 
-    password = getpass.getpass("Source vault password: ")
+    source_password = getpass.getpass("Source vault password: ")
     try:
-        tokens = load_tokens(password, source_path)
+        source_vault = load_vault(source_password, source_path)
     except ValueError as exc:
-        _die(f"Could not unlock vault: {exc}")
+        _die(f"Could not unlock source vault: {exc}")
 
-    print(f"Loaded {len(tokens)} token(s). Enter a new password for the destination vault.")
+    source_tokens = source_vault.get("tokens", [])
+    source_gdrive_auth = source_vault.get("gdrive_auth")
+    print(f"Loaded {len(source_tokens)} token(s) from source vault.")
+
+    dest_tokens: list[Token] = []
+    dest_gdrive_auth = None
+
+    if vault_exists(dest_path):
+        dest_password = get_password_from_keyring(str(dest_path.resolve()))
+        if not dest_password:
+            dest_password = getpass.getpass("Destination vault password: ")
+        try:
+            dest_vault = load_vault(dest_password, dest_path)
+        except ValueError as exc:
+            _die(f"Could not unlock destination vault: {exc}")
+        dest_tokens = dest_vault.get("tokens", [])
+        dest_gdrive_auth = dest_vault.get("gdrive_auth")
+        print(f"Loaded {len(dest_tokens)} token(s) from destination vault.")
+
+    merged_tokens = dest_tokens + source_tokens
+
+    merged_gdrive_auth = source_gdrive_auth or dest_gdrive_auth
+
+    print(f"Total {len(merged_tokens)} token(s) after merge.")
+
     new_password = _ask_new_password()
-    save_vault(tokens, new_password, dest_path)
-    print(f"Vault imported to: {dest_path}")
+    save_vault(merged_tokens, new_password, dest_path, merged_gdrive_auth)
+    print(f"Vault saved to: {dest_path}")
 
     abs_path = str(dest_path.resolve())
     try:
