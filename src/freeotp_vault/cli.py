@@ -3,6 +3,7 @@ freeotp-vault — command-line OTP vault for FreeOTP JSON exports.
 
 Usage:
   freeotp-vault init <json_file>          Import + encrypt a FreeOTP export
+  freeotp-vault import-vault <file> [dest] Import an encrypted vault
   freeotp-vault list [--filter TEXT]      List stored accounts
   freeotp-vault token [--filter TEXT]     Generate OTP codes
   freeotp-vault change-password           Re-encrypt with a new password
@@ -86,6 +87,48 @@ def _unlock(vault_path: Path) -> tuple[str, list[Token]]:
     _die("Too many failed attempts.")
     # mypy thinks we can reach here after _die, but _die calls sys.exit
     assert False, "unreachable"
+
+
+def cmd_import_vault(args: argparse.Namespace) -> None:
+    source_path = Path(args.vault_file)
+    if not source_path.exists():
+        _die(f"File not found: {source_path}")
+
+    dest_path = Path(args.dest) if args.dest else DEFAULT_VAULT_PATH
+    if vault_exists(dest_path) and not args.force:
+        try:
+            confirm = (
+                input(f"Vault already exists at {dest_path}. Overwrite? [y/N] ")
+                .strip()
+                .lower()
+            )
+        except EOFError:
+            confirm = "n"
+        if confirm != "y":
+            print("Aborted.")
+            return
+
+    password = getpass.getpass("Source vault password: ")
+    try:
+        tokens = load_tokens(password, source_path)
+    except ValueError as exc:
+        _die(f"Could not unlock vault: {exc}")
+
+    print(f"Loaded {len(tokens)} token(s). Enter a new password for the destination vault.")
+    new_password = _ask_new_password()
+    save_vault(tokens, new_password, dest_path)
+    print(f"Vault imported to: {dest_path}")
+
+    abs_path = str(dest_path.resolve())
+    try:
+        save_kr = input("Save password to system keyring? [y/N] ").strip().lower()
+    except EOFError:
+        save_kr = "n"
+    if save_kr == "y":
+        if store_password_in_keyring(abs_path, new_password):
+            print("  Password stored in keyring.")
+        else:
+            print("  Keyring unavailable; password NOT stored.")
 
 
 def cmd_init(args: argparse.Namespace) -> None:
@@ -333,6 +376,23 @@ def build_parser() -> argparse.ArgumentParser:
     init_p = sub.add_parser("init", help="Import a FreeOTP JSON export.")
     init_p.add_argument("json_file", help="Path to FreeOTP/FreeOTP+ JSON export.")
 
+    import_vault_p = sub.add_parser(
+        "import-vault", help="Import an encrypted vault to a new location."
+    )
+    import_vault_p.add_argument("vault_file", help="Path to the encrypted vault.")
+    import_vault_p.add_argument(
+        "dest",
+        nargs="?",
+        default=None,
+        help=f"Destination path (default: {DEFAULT_VAULT_PATH})",
+    )
+    import_vault_p.add_argument(
+        "-f",
+        "--force",
+        action="store_true",
+        help="Overwrite destination without prompting.",
+    )
+
     list_p = sub.add_parser("list", help="List stored accounts.")
     list_p.add_argument(
         "--filter",
@@ -387,6 +447,7 @@ def main() -> None:
 
     dispatch = {
         "init": cmd_init,
+        "import-vault": cmd_import_vault,
         "list": cmd_list,
         "token": cmd_token,
         "change-password": cmd_change_password,
