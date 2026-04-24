@@ -26,7 +26,7 @@ from .keyring_store import (
     keyring_available,
     store_password_in_keyring,
 )
-from .otp import generate_token, seconds_remaining
+from .otp import check_clock_drift, generate_token, seconds_remaining
 from .parser import Token, parse_freeotp_json
 from .vault import (
     DEFAULT_VAULT_PATH,
@@ -249,6 +249,20 @@ def cmd_token(args: argparse.Namespace) -> None:
     if not matches:
         print("No accounts match the filter.")
         return
+
+    drift = check_clock_drift()
+    if drift is not None:
+        from .otp import DRIFT_WARNING_THRESHOLD
+        if abs(drift) > DRIFT_WARNING_THRESHOLD:
+            sign = "+" if drift > 0 else ""
+            print(
+                f"[warn] Clock drift detected: {sign}{drift:.1f}s "
+                "(your clock is "
+                + ("behind" if drift > 0 else "ahead of")
+                + " NTP server). OTPs may not match other devices."
+            )
+        else:
+            print(f"[info] Clock OK (drift: {drift:.1f}s)")
 
     print(f"\n{'ISSUER':<20}  {'LABEL':<30}  {'CODE':<8}  {'EXPIRES IN':>12}")
     print("-" * 76)

@@ -4,6 +4,8 @@ OTP token generation (TOTP and HOTP) backed by pyotp.
 
 from __future__ import annotations
 
+import socket
+import struct
 import time
 from typing import TYPE_CHECKING
 
@@ -11,6 +13,32 @@ import pyotp
 
 if TYPE_CHECKING:
     from .parser import Token
+
+NTP_SERVERS = ["pool.ntp.org", "time.google.com", "time.cloudflare.com"]
+DRIFT_WARNING_THRESHOLD = 2.0
+
+
+def check_clock_drift() -> float | None:
+    """Query NTP server to check local clock drift.
+
+    Returns:
+        Clock drift in seconds (positive = local clock is behind server),
+        or None if unable to connect.
+    """
+    for server in NTP_SERVERS:
+        try:
+            client = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            client.settimeout(3)
+            ntp_packet = b"\x1b" + 47 * b"\x00"
+            client.sendto(ntp_packet, (server, 123))
+            data, _ = client.recvfrom(1024)
+            client.close()
+            t = struct.unpack("!12I", data)[10]
+            server_time = t - 2208988800
+            return server_time - time.time()
+        except (OSError, struct.error, TimeoutError):
+            continue
+    return None
 
 
 def generate_token(token: Token) -> str:
