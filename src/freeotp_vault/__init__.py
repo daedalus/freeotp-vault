@@ -13,7 +13,7 @@ from .otp import generate_token, seconds_remaining
 from .parser import Token, parse_freeotp_json
 from .vault import filter_tokens, load_tokens, save_tokens, vault_exists
 
-__version__ = "0.1.2"
+__version__ = "0.1.3"
 __all__ = [
     "encrypt_vault",
     "decrypt_vault",
