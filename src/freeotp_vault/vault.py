@@ -4,6 +4,7 @@ High-level vault operations: load, save, query, mutate.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -31,13 +32,50 @@ def _vault_path(path: str | Path | None) -> Path:
     return Path(path) if path else DEFAULT_VAULT_PATH
 
 
+def _hash_file(path: Path) -> Path:
+    """Return the hash file path for a given vault path."""
+    return path.with_suffix(".sha.txt")
+
+
+def compute_vault_hash(plaintext: bytes) -> str:
+    """Compute SHA256 hash of vault plaintext (JSON bytes)."""
+    return hashlib.sha256(plaintext).hexdigest()
+
+
+def _save_hash(vault_path: Path, content_hash: str) -> None:
+    """Save hash to .sha.txt file."""
+    hash_path = _hash_file(vault_path)
+    hash_path.write_text(content_hash + "\n", encoding="utf-8")
+    os.chmod(hash_path, 0o600)
+
+
+def _load_hash(vault_path: Path) -> str | None:
+    """Load hash from .sha.txt file. Returns None if missing."""
+    hash_path = _hash_file(vault_path)
+    if hash_path.exists():
+        return hash_path.read_text(encoding="utf-8").strip()
+    return None
+
+
 def vault_exists(path: str | Path | None = None) -> bool:
     """Return True if the vault file exists on disk."""
     return _vault_path(path).exists()
 
 
-def _raw_to_vault(raw: bytes, password: str) -> VaultData:
+def _raw_to_vault(
+    raw: bytes, password: str, vault_path: Path, verify_integrity: bool = True
+) -> VaultData:
     plaintext = decrypt_vault(raw, password)
+    content_hash = compute_vault_hash(plaintext)
+
+    if verify_integrity:
+        stored_hash = _load_hash(vault_path)
+        if stored_hash is not None and stored_hash != content_hash:
+            raise ValueError(
+                "Vault integrity check failed: hash mismatch. "
+                "The vault may have been tampered with or corrupted."
+            )
+
     obj = json.loads(plaintext.decode("utf-8"))
     if not isinstance(obj, dict):
         raise ValueError("Vault format error: expected dict with 'tokens' key.")
@@ -61,14 +99,14 @@ def load_vault(password: str, path: str | Path | None = None) -> VaultData:
 
     Raises:
         FileNotFoundError: If vault file does not exist.
-        ValueError: On wrong password or corruption.
+        ValueError: On wrong password, corruption, or integrity failure.
     """
     vp = _vault_path(path)
     if not vp.exists():
         raise FileNotFoundError(
             f"Vault not found at {vp}. Run `freeotp-vault init <json_file>` first."
         )
-    return _raw_to_vault(vp.read_bytes(), password)
+    return _raw_to_vault(vp.read_bytes(), password, vp)
 
 
 def save_vault(
@@ -91,11 +129,13 @@ def save_vault(
     if gdrive_auth:
         vault["gdrive_auth"] = gdrive_auth
     plaintext = json.dumps(vault, separators=(",", ":")).encode("utf-8")
+    content_hash = compute_vault_hash(plaintext)
     blob = encrypt_vault(plaintext, password)
     tmp = vp.with_suffix(".tmp")
     tmp.write_bytes(blob)
     tmp.replace(vp)
     os.chmod(vp, 0o600)
+    _save_hash(vp, content_hash)
 
 
 def load_tokens(password: str, path: str | Path | None = None) -> list[Token]:
