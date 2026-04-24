@@ -12,6 +12,17 @@ import sys
 SERVICE = "freeotp-vault"
 
 
+def keyring_available() -> bool:
+    """Check if a functional system keyring is available."""
+    try:
+        import keyring
+
+        backend = keyring.get_keyring()
+        return not isinstance(backend, keyring.backends.fail.Keyring)
+    except Exception:
+        return False
+
+
 def get_password_from_keyring(vault_path: str) -> str | None:
     """Retrieve the stored vault password from the OS keyring.
 

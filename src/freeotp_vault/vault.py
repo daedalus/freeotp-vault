@@ -7,6 +7,8 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import shutil
+from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
@@ -19,6 +21,7 @@ from .parser import Token  # noqa: TC001  # type: ignore[attr-defined]
 
 DEFAULT_VAULT_DIR = Path.home() / ".config" / "freeotp-vault"
 DEFAULT_VAULT_PATH = DEFAULT_VAULT_DIR / "vault.enc"
+DEFAULT_MAX_BACKUPS = 5
 
 
 class VaultData(dict):  # type: ignore[type-arg]
@@ -30,6 +33,44 @@ class VaultData(dict):  # type: ignore[type-arg]
 
 def _vault_path(path: str | Path | None) -> Path:
     return Path(path) if path else DEFAULT_VAULT_PATH
+
+
+def _backup_path(vault_path: Path) -> Path:
+    """Return the backup directory path for a given vault path."""
+    return vault_path.parent / "backups"
+
+
+def _list_backups(vault_path: Path) -> list[Path]:
+    """List existing backup files for a vault, newest first."""
+    backup_dir = _backup_path(vault_path)
+    if not backup_dir.exists():
+        return []
+    backups = sorted(
+        backup_dir.glob("vault.*.enc"), key=lambda p: p.stat().st_mtime, reverse=True
+    )
+    return backups
+
+
+def _rotate_backups(vault_path: Path, max_backups: int = DEFAULT_MAX_BACKUPS) -> None:
+    """Remove old backups beyond max_backups count."""
+    backups = _list_backups(vault_path)
+    for old in backups[max_backups:]:
+        old.unlink()
+
+
+def _create_backup(
+    vault_path: Path, max_backups: int = DEFAULT_MAX_BACKUPS
+) -> Path | None:
+    """Create a timestamped backup of the vault. Returns backup path or None if vault doesn't exist."""
+    if not vault_path.exists():
+        return None
+    backup_dir = _backup_path(vault_path)
+    backup_dir.mkdir(parents=True, exist_ok=True)
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    backup_path = backup_dir / f"vault.{timestamp}.enc"
+    shutil.copy2(vault_path, backup_path)
+    _rotate_backups(vault_path, max_backups)
+    return backup_path
 
 
 def _hash_file(path: Path) -> Path:
@@ -114,6 +155,8 @@ def save_vault(
     password: str,
     path: str | Path | None = None,
     gdrive_auth: GdriveAuthData | None = None,
+    create_backup: bool = True,
+    max_backups: int = DEFAULT_MAX_BACKUPS,
 ) -> None:
     """Encrypt and persist tokens (and gdrive_auth) to the vault file.
 
@@ -122,8 +165,14 @@ def save_vault(
         password: Encryption password.
         path: Optional override for vault file location.
         gdrive_auth: Optional gdrive auth data to store.
+        create_backup: Whether to create a timestamped backup before saving.
+        max_backups: Maximum number of backups to retain.
     """
     vp = _vault_path(path)
+    if create_backup:
+        backup_path = _create_backup(vp, max_backups)
+        if backup_path:
+            print(f"Backup created: {backup_path}")
     vp.parent.mkdir(parents=True, exist_ok=True)
     vault: VaultData = VaultData({"tokens": tokens})
     if gdrive_auth:

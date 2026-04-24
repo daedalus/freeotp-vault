@@ -23,6 +23,7 @@ from .gdrive import gdrive_logout, gdrive_sync
 from .keyring_store import (
     delete_password_from_keyring,
     get_password_from_keyring,
+    keyring_available,
     store_password_in_keyring,
 )
 from .otp import generate_token, seconds_remaining
@@ -67,19 +68,25 @@ def _unlock(vault_path: Path) -> tuple[str, list[Token]]:
             print("[warn] Keyring password no longer valid. Please re-enter.")
             delete_password_from_keyring(abs_path)
 
+    if not keyring_available():
+        print("[warn] System keyring unavailable. Password will not be saved.")
+
     for attempt in range(3):
         password = getpass.getpass(f"Vault password (attempt {attempt + 1}/3): ")
         try:
             tokens = load_tokens(password, vault_path)
-            try:
-                save = input("Save password to system keyring? [y/N] ").strip().lower()
-            except EOFError:
-                save = "n"
-            if save == "y":
-                if store_password_in_keyring(abs_path, password):
-                    print("  Password stored in keyring.")
-                else:
-                    print("  Keyring unavailable; password NOT stored.")
+            if keyring_available():
+                try:
+                    save = (
+                        input("Save password to system keyring? [y/N] ").strip().lower()
+                    )
+                except EOFError:
+                    save = "n"
+                if save == "y":
+                    if store_password_in_keyring(abs_path, password):
+                        print("  Password stored in keyring.")
+                    else:
+                        print("  Keyring unavailable; password NOT stored.")
             return password, tokens
         except ValueError as exc:
             print(f"  {exc}")
