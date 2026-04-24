@@ -13,6 +13,14 @@ Encrypted CLI vault for FreeOTP JSON exports with system keyring support.
 pip install freeotp-vault
 ```
 
+For system keyring support (to store password securely):
+
+```bash
+pip install freeotp-vault[keyring]
+# or on Debian/Ubuntu:
+sudo apt install libsecret-1-0 libsecret-tools
+```
+
 ## Usage
 
 ### Import a FreeOTP backup
@@ -46,6 +54,10 @@ freeotp-vault change-password
 ```bash
 freeotp-vault remove --filter "old account"
 ```
+
+### Automatic Backups
+
+Every time the vault is saved, a timestamped backup is created in `~/.config/freeotp-vault/backups/`. Up to 5 backups are retained.
 
 ### Google Drive Sync
 
