@@ -95,9 +95,11 @@ def parse_freeotp_json(raw: str) -> list[Token]:
         if token_type not in ("TOTP", "HOTP"):
             token_type = "TOTP"
 
-        algo = str(t.get("algo", t.get("algorithm", "SHA1"))).upper()
+        algo = str(t.get("algo") or t.get("algorithm") or "SHA1").upper()
         if algo not in ("SHA1", "SHA256", "SHA512"):
-            algo = "SHA1"
+            algo = str(t.get("algorithm") or "SHA1").upper()
+            if algo not in ("SHA1", "SHA256", "SHA512"):
+                algo = "SHA1"
 
         tokens.append(
             {

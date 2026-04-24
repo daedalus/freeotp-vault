@@ -37,6 +37,7 @@ def generate_token(token: Token) -> str:
 
     token_type = token.get("type", "TOTP").upper()
 
+
     if token_type == "TOTP":
         period = int(token.get("period", 30))
         totp = pyotp.TOTP(secret, digits=digits, digest=digest, interval=period)

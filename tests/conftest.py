@@ -52,7 +52,7 @@ def token_list() -> list[dict]:
 @pytest.fixture
 def freeotp_json_bytes() -> str:
     """A minimal FreeOTP original JSON export (secret as int8 array)."""
-    secret_bytes = base64.b32decode("JBSWY3DPEHPK3PXP====")
+    secret_bytes = base64.b32decode("JBSWY3DPEHPK3PXP")
     signed = [b if b < 128 else b - 256 for b in secret_bytes]
     payload = {
         "tokens": [
